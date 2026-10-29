@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      # CASE: R09-FP-02
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | pinned to a full 40-character commit SHA
+      - uses: actions/checkout@90cfb9d0dea54c6811a9916178c12ed851b4647b # v4.2.2
+      # CASE: R09-FP-03
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: local composite action | same-repository action, versioned with the code
+      - uses: ./.github/actions/setup-caseflow
+        with:
+          node-version: '24'
+      # CASE: R09-TP-02
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | major version tag can be moved by the action owner
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci && npm run lint && npm run typecheck
+
+  codeql:
+    runs-on: ubuntu-24.04
+    permissions:
+      security-events: write
+    steps:
+      # CASE: R09-FP-04
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | full SHA pin
+      - uses: actions/checkout@f7c4b097239fff10eecb8cb325ca07bcc9837237
+      # CASE: R09-TP-03
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | tracks the main branch: every push to main changes what runs here
+      - uses: github/codeql-action/init@main
+        with:
+          languages: javascript-typescript, python, go
+      # CASE: R09-TP-04
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | feature branch of a third-party action
+      - uses: lint-tools-example/eslint-annotate@feature/sarif-output
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      # CASE: R09-FP-05
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: docker image by digest | immutable sha256 digest
+      - uses: docker://alpine@sha256:92f281d5be1e1ed029ee1cebd153480d2335bbd2c29d99bfa50efb3b896cb890
+        with:
+          args: sh -c "apk info"
+      # CASE: R09-GAP-01
+      # todoruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: docker image by tag | mutable image tag; the rule exempts every docker:// reference
+      - uses: docker://node:24-alpine
+        with:
+          args: node --version
+      # CASE: R09-TP-05
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | docker/login-action@v2 (handles registry credentials) on a mutable tag
+      - uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}

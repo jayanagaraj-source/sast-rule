@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      app: api
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      # CASE: R09-TP-06
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | exact version tag is still a mutable git tag
+      - uses: actions/checkout@v4.1.1
+      # CASE: R09-TP-07
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | short SHA is ambiguous and can be shadowed by a crafted commit or tag
+      - uses: aws-actions/configure-aws-credentials@647f4fe
+        with:
+          role-to-assume: arn:aws:iam::482915736104:role/caseflow-release
+          aws-region: eu-west-1
+      # CASE: R09-FP-09
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | full SHA pin
+      - uses: sigstore/cosign-installer@4aa7d557ea13984e2181d1dee4a1fa0e26954be8 # v3.7.0
+      # CASE: R09-TP-08
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | master branch
+      - uses: softprops/action-gh-release@master
+        with:
+          files: dist-artifacts/*.tgz
+      # CASE: R09-TP-09
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | develop branch
+      - uses: release-notes-example/changelog-action@develop

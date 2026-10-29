@@ -1,0 +1,22 @@
+name: Set up caseflow
+description: Installs Node, restores the npm cache and installs workspace dependencies.
+inputs:
+  node-version:
+    description: Node.js version
+    default: '24'
+runs:
+  using: composite
+  steps:
+    # CASE: R09-TP-01
+    # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: composite action | sink: action ref | mutable tag inside a composite action's steps
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    # CASE: R09-FP-01
+    # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: composite action | sink: action ref | full SHA pin
+    - uses: actions/cache@5b0514ab00bf6378bf25a47a9585b9f2953eca98
+      with:
+        path: ~/.npm
+        key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+    - run: npm ci
+      shell: bash

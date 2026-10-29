@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: caseflow
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+  redis:
+    image: redis:7
+  api:
+    build: ../apps/api
+    depends_on: [postgres, redis]
+    env_file: ../.env.local
+secrets:
+  pg_password:
+    file: ./secrets/pg_password.txt

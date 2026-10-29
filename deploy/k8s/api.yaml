@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caseflow-api
+  labels: { app: caseflow-api }
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: caseflow-api }
+  template:
+    metadata:
+      labels: { app: caseflow-api }
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/caseflow-example/api@sha256:7261b589fa4e47b644ddc807e50e409c4abd0df96d17ce553d6e57daffe0a337
+          ports: [{ containerPort: 8080 }]
+          envFrom: [{ secretRef: { name: caseflow-api } }]
+---
+# Argo-style smoke test definition consumed by the in-cluster "smoker" controller (not GitHub Actions).
+apiVersion: smoker.caseflow.example/v1
+kind: SmokeTest
+metadata:
+  name: api-smoke
+spec:
+  steps:
+    # CASE: R09-FP-11
+    # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: smoker CRD | sink: non-GitHub-Actions YAML | Kubernetes custom resource with a steps/uses shape
+    - uses: http-check@v1
+      with: { url: 'https://api.caseflow.example/health' }

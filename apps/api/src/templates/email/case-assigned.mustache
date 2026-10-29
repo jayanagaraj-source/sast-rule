@@ -1,0 +1,27 @@
+{{! Assignment notification. Rendered by services/notifications with mustache.js. }}
+<html>
+<body>
+  {{! CASE: R01-FP-01 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: escaped interpolation | sink: double braces | ordinary escaped values }}
+  <p>Hi {{assignee.firstName}}, case <strong>{{caseNumber}}</strong> was assigned to you.</p>
+
+  {{! CASE: R01-TP-01 }}
+  {{! ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: case description HTML composed by the customer in the widget | sink: triple-brace unescape | user HTML rendered unescaped }}
+  <div>{{{elements}}}</div>
+
+  {{! CASE: R01-FP-02 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: DOMPurify output stored at write time (comments.body_sanitized) | sink: triple-brace unescape | backend-sanitised HTML }}
+  <div class="preview">{{{preview.sanitizedHtml}}}</div>
+
+  {{! CASE: R02-TP-01 }}
+  {{! ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: requester name (customer text) | sink: unquoted data attribute | attribute injection via spaces in customer-controlled text }}
+  <span data-requester={{requester.name}}>{{requester.name}}</span>
+
+  {{! CASE: R02-FP-01 }}
+  {{! ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: requester name | sink: quoted data attribute | quoted and escaped }}
+  <span data-requester-email="{{requester.email}}">{{requester.email}}</span>
+
+  {{! A legacy layout used triple braces on the description; removed in CF-2001 in favour of the sanitised preview. }}
+  {{> footer}}
+</body>
+</html>

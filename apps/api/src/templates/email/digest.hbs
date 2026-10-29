@@ -1,0 +1,40 @@
+{{!-- Daily digest, rendered by the worker with Handlebars (jobs/digest-job.ts). Handlebars escapes double-stash
+     output (including = and backtick) but never escapes triple-stash or SafeString helper output. --}}
+<!DOCTYPE html>
+<html>
+<body>
+  {{! CASE: R02-TP-03 }}
+  {{! ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant branding (admin-editable) | sink: unquoted src | Handlebars escapes = but not spaces; value splits into extra attributes }}
+  <img src={{clientLogo}} alt="client logo">
+  {{! CASE: R02-FP-03 }}
+  {{! ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant branding | sink: quoted src | quoted and escaped }}
+  <img src="{{clientLogo}}" alt="client logo" width="120">
+  {{! CASE: R02-FP-04 }}
+  {{! ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: server-computed integer | sink: unquoted width | value is a number computed by the job, cannot contain spaces or quotes }}
+  <table width={{tableWidth}} cellpadding="4">
+    {{#each cases}}
+    <tr>
+      {{! CASE: R02-TP-04 }}
+      {{! ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: case subject (customer text) | sink: unquoted title | customer-controlled text in an unquoted attribute }}
+      <td title={{subject}}>{{subject}}</td>
+      {{! CASE: R01-FP-06 }}
+      {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: statusBadge helper | sink: double-stash | helper escapes its argument before returning SafeString }}
+      <td>{{statusBadge status}}</td>
+      {{! CASE: R01-TP-04 }}
+      {{! ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: last customer message HTML | sink: triple-stash | raw customer HTML in the digest }}
+      <td>{{{lastMessageHtml}}}</td>
+    </tr>
+    {{/each}}
+  </table>
+
+  {{! CASE: R01-TP-05 }}
+  {{! ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: agent profile signature (user-editable) | sink: triple-stash helper output | helper returns SafeString of unsanitised user HTML }}
+  <div class="signature">{{{signature agent}}}</div>
+
+  {{! CASE: R01-FP-07 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: server-built summary list | sink: triple-stash | elements built by digest-job.ts with Handlebars.escapeExpression on every value }}
+  <div>{{{elements}}}</div>
+
+  {{> digest-footer}}
+</body>
+</html>

@@ -1,0 +1,25 @@
+{# Ticket update e-mail for the legacy help centre. Rendered by Twig with autoescape "html": it escapes & < > " '
+   but NOT spaces or "=", so an unquoted attribute value can be split into new attributes. #}
+<html>
+<body>
+  {# CASE: R02-TP-06 #}
+  {# ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant company website (signup form) | sink: unquoted href | Twig html escaping leaves spaces and = intact: "x onmouseover=alert(1)" injects a handler #}
+  <a href={{ company.website }}>{{ company.name }}</a>
+
+  {# CASE: R02-TP-07 #}
+  {# ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant logo URL (admin-editable) | sink: unquoted src | attribute injection via the unescaped space #}
+  <img src={{ tenant.logo_url }} alt="logo" width="120">
+
+  {# CASE: R02-FP-14 #}
+  {# ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant logo URL | sink: quoted src | quoted; Twig escapes the quote characters #}
+  <img src="{{ tenant.logo_url }}" alt="logo" width="120">
+
+  {# CASE: R02-FP-15 #}
+  {# ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: requester name | sink: unquoted attribute with the html_attr strategy | html_attr escapes spaces and = as well, so the value cannot break out #}
+  <span title={{ requester.name|e('html_attr') }}>{{ requester.name }}</span>
+
+  {# CASE: R02-FP-16 #}
+  {# ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: ticket number (integer from the DB) | sink: quoted data attribute | quoted numeric value #}
+  <p data-ticket="{{ ticket.number }}">Ticket #{{ ticket.number }} was updated.</p>
+</body>
+</html>

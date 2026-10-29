@@ -1,0 +1,16 @@
+# Incident runbook executed by the in-house "runbookd" service (NOT GitHub Actions). Each step names a runbookd
+# plugin; plugin versions are resolved from runbookd's own signed plugin registry.
+name: sev1-database-failover
+trigger:
+  alert: rds-primary-unhealthy
+steps:
+  # CASE: R09-FP-12
+  # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: runbookd plugin | sink: non-GitHub-Actions YAML | runbookd plugin reference, not a GitHub action
+  - uses: pager-escalate@v2
+    with:
+      policy: database-oncall
+  # CASE: R09-FP-13
+  # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: runbookd plugin | sink: non-GitHub-Actions YAML | unrelated "uses" key in another tool's schema
+  - uses: rds-failover@v1
+    with:
+      cluster: caseflow-prod

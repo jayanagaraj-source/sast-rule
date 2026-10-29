@@ -1,0 +1,40 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+
+jobs:
+  build:
+    # CASE: R09-FP-06
+    # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: same-repository reusable workflow | local path, versioned with this commit
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      app: worker
+
+  platform-checks:
+    # CASE: R09-FP-07
+    # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: external reusable workflow | pinned to a full commit SHA
+    uses: caseflow-platform-example/shared-workflows/.github/workflows/policy-check.yml@8730da5ab134dae0a0531b7545568621efcd31a9
+
+  deploy:
+    needs: [build, platform-checks]
+    # CASE: R09-GAP-02
+    # todoruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: external reusable workflow | mutable @main ref on a job-level uses; the rule only inspects uses inside steps
+    uses: caseflow-platform-example/shared-workflows/.github/workflows/deploy-eks.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-24.04
+    steps:
+      # CASE: R09-FP-08
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: workflow | sink: action ref | full SHA pin with version comment
+      - uses: actions/github-script@1a6d0292ced2dbc190f72d28734d0f1dd1a9a7ea # v7.0.1
+        with:
+          script: core.notice('deployed')

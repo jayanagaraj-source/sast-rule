@@ -1,0 +1,15 @@
+{{!-- SLA breach alert to the escalation manager. Rendered with Handlebars by apps/worker/src/jobs/sla-job.ts. --}}
+<html>
+<body>
+  <h2>SLA breached on case #{{caseNumber}}</h2>
+  {{! CASE: R01-GAP-01 }}
+  {{! todoruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: customer's original request body | sink: triple-stash | raw customer HTML; the rule only scans .mustache, .hbs and .html, not .handlebars }}
+  <div class="request">{{{firstMessageHtml}}}</div>
+  {{! CASE: R02-GAP-01 }}
+  {{! todoruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: requester-provided avatar URL | sink: unquoted src | unquoted attacker value; .handlebars is not in the rule's file list }}
+  <img src={{requester.avatarUrl}} alt="requester" width="32">
+  {{! CASE: R01-FP-09 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: escaped interpolation | sink: double-stash | escaped }}
+  <p>Requester: {{requester.name}}</p>
+</body>
+</html>

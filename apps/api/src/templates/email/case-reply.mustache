@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>{{caseSubject}}</title></head>
+<body style="font-family: -apple-system, Segoe UI, sans-serif;">
+  {{! Rendered by lib/mailer.ts renderCaseReply() with mustache.js. Double braces HTML-escape, triple braces and ampersand do not. }}
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      {{! CASE: R02-TP-02 }}
+      {{! ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant branding (admin-editable logo URL) | sink: unquoted src | mustache.js escapes = but spaces still split the value, so "x hidden" injects attributes }}
+      <td><img src={{brand.logoUrl}} alt="logo" height="32"></td>
+      {{! CASE: R02-FP-02 }}
+      {{! ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant branding | sink: quoted href | quoted attribute, mustache.js escapes quotes }}
+      <td align="right"><a href="{{brand.portalUrl}}">Open the customer portal</a></td>
+    </tr>
+  </table>
+
+  {{! CASE: R01-FP-03 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: agent display name | sink: escaped interpolation | double braces are HTML-escaped }}
+  <p>{{agentName}} replied to your request:</p>
+
+  {{! CASE: R01-TP-02 }}
+  {{! ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: customer comment (POST /cases/:id/comments) | sink: triple-brace unescape | raw user HTML into every recipient's mailbox }}
+  <div class="comment">{{{comment.body}}}</div>
+
+  {{! CASE: R01-FP-04 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: comment run through sanitize-html (mailer.sanitizeCommentHtml) | sink: triple-brace unescape | sanitizer allowlists tags and https/mailto schemes only }}
+  <div class="comment-sanitized">{{{comment.bodyHtmlSanitized}}}</div>
+
+  {{! CASE: R01-TP-03 }}
+  {{! ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: internal note typed by an agent of another team | sink: ampersand unescape | the ampersand form renders raw HTML exactly like triple braces }}
+  <div class="note">{{& internalNote}}</div>
+
+  {{! CASE: R01-FP-05 }}
+  {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: static footer constant in lib/mailer.ts | sink: triple-brace unescape | trusted server-owned markup, no user input }}
+  <footer>{{{footerHtml}}}</footer>
+</body>
+</html>

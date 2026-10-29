@@ -1,0 +1,7 @@
+{
+  "name": "@caseflow/portal-angular",
+  "private": true,
+  "version": "3.14.0",
+  "scripts": { "build": "ng build" },
+  "dependencies": { "@angular/common": "^18.2.7", "@angular/core": "^18.2.7", "rxjs": "^7.8.1" }
+}

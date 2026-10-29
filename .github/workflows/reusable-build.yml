@@ -1,0 +1,29 @@
+name: Reusable build
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      # CASE: R09-FP-10
+      # ok: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: reusable workflow | sink: action ref | full SHA pin
+      - uses: actions/checkout@49d2859af453eb703098c3699a9789b5233af94f
+      # CASE: R09-TP-10
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: reusable workflow | sink: action ref | mutable major tag inside a reusable workflow
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+      - run: npm ci && npm run build --workspace apps/${{ inputs.app }}
+      # CASE: R09-TP-11
+      # ruleid: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag | src: reusable workflow | sink: action ref | mutable tag on the artifact uploader
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}
+          path: apps/${{ inputs.app }}/lib

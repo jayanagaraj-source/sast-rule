@@ -1,0 +1,11 @@
+{{! Shared footer partial. Only server-owned values are passed in (see lib/mailer.ts). }}
+<table width="100%" style="color:#868e96;font-size:12px">
+  <tr>
+    {{! CASE: R01-FP-08 }}
+    {{! ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: static unsubscribe block from config/email.ts | sink: triple-brace unescape | trusted server-generated markup }}
+    <td>{{{unsubscribeBlockHtml}}}</td>
+    {{! CASE: R02-FP-05 }}
+    {{! ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: constant | sink: quoted href | quoted static URL with an escaped id }}
+    <td align="right"><a href="https://caseflow.example/preferences?u={{recipientId}}">Notification settings</a></td>
+  </tr>
+</table>

@@ -1,0 +1,9 @@
+<!-- Tenant branding header shown on every portal page (Angular). -->
+<nav class="portal-nav" [style.background]="branding.primaryColor">
+  <!-- CASE: R02-FP-08 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant branding logo URL (admin-editable) | sink: unquoted Angular interpolation in src | Angular property binding + URL sanitiser; no attribute injection is possible -->
+  <img src={{branding.logoUrl}} alt="client logo" height="28">
+  <!-- CASE: R02-FP-09 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: constant | sink: quoted static attribute | static value -->
+  <a href="/portal/help" class="help-link">Help</a>
+</nav>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!-- Welcome e-mail. Rendered with mustache.js by services/onboarding (view built in lib/mailer.ts). -->
+<html>
+<head><meta charset="utf-8"><title>Welcome to {{tenantName}}</title></head>
+<body>
+  <!-- CASE: R02-FP-06 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: constant | sink: unquoted src | static path, no interpolation -->
+  <img src=/static/email/caseflow-mark.png alt="Caseflow" width="48">
+
+  <!-- CASE: R02-TP-05 -->
+  <!-- ruleid: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: tenant signup form (company website) | sink: unquoted href | attacker-chosen text in an unquoted href; javascript: and extra attributes possible -->
+  <p>Your workspace for <a href={{companyWebsite}}>{{tenantName}}</a> is ready.</p>
+
+  <!-- CASE: R02-FP-07 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: server-generated invite token URL | sink: quoted href | quoted, URL built server-side from a random token -->
+  <p><a href="{{inviteUrl}}" class="button">Accept your invitation</a></p>
+
+  <!-- CASE: R01-TP-06 -->
+  <!-- ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: inviter's personal message (free text on the invite form) | sink: triple-brace unescape | raw HTML from another user -->
+  <blockquote>{{{inviterMessage}}}</blockquote>
+
+  <!-- CASE: R01-FP-10 -->
+  <!-- ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: escaped interpolation | sink: double braces | HTML-escaped -->
+  <p>Invited by {{inviterName}}</p>
+
+  <!-- CASE: R01-TP-07 -->
+  <!-- ruleid: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: tenant tagline (admin-editable) | sink: triple-brace inside an HTML comment | mustache still renders inside an HTML comment, so a tagline containing a comment terminator breaks out -->
+  <!-- tagline: {{{tenantTagline}}} -->
+
+  <!-- CASE: R01-FP-11 -->
+  <!-- ok: javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape | src: legal footer partial from the repo | sink: triple-brace unescape | trusted static HTML loaded from templates/email/partials -->
+  <footer>{{{legalFooterHtml}}}</footer>
+</body>
+</html>

@@ -1,0 +1,25 @@
+<!-- Customer portal: case detail. Angular templates compile interpolation into property bindings and run
+     URL / HTML values through DomSanitizer, so attribute quoting does not change how values are applied. -->
+<section class="case-detail" *ngIf="case$ | async as c">
+  <header>
+    <h1>{{ c.subject }}</h1>
+    <!-- CASE: R02-FP-10 -->
+    <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: case subject (customer text) | sink: Angular interpolation in an unquoted title | compiled to a title property binding; the value is never parsed as HTML -->
+    <span class="badge" title={{c.subject}}>{{ c.status }}</span>
+  </header>
+
+  <!-- CASE: R02-FP-11 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: requester avatar URL | sink: Angular property binding | [src] binding with Angular URL sanitisation -->
+  <img [src]="c.requester.avatarUrl" alt="requester avatar" width="40">
+
+  <!-- CASE: R02-FP-12 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: portal deep link | sink: unquoted Angular interpolation in href | Angular binds href as a property and sanitises unsafe URLs -->
+  <a href={{c.portalLink}} class="open-in-portal">Open in portal</a>
+
+  <!-- CASE: R02-FP-13 -->
+  <!-- ok: generic.html-templates.security.unquoted-attribute-var.unquoted-attribute-var | src: assignee avatar URL | sink: quoted Angular interpolation | quoted, property-bound and sanitised -->
+  <img src="{{ c.assignee?.avatarUrl }}" alt="assignee" width="24">
+
+  <!-- Alternative XSS sink: [innerHTML] is sanitised by Angular; outside the 13 benchmark rules (README "Alternative sinks"). -->
+  <div class="description" [innerHTML]="c.descriptionHtml"></div>
+</section>

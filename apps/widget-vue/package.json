@@ -1,0 +1,9 @@
+{
+  "name": "@caseflow/widget-vue",
+  "private": true,
+  "version": "3.14.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "dependencies": { "axios": "^1.7.7", "dompurify": "^3.1.7", "marked": "^14.1.2", "vue": "^3.5.11" },
+  "devDependencies": { "@vitejs/plugin-vue": "^5.1.4", "vite": "^5.4.8" }
+}
