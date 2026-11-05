@@ -1212,6 +1212,725 @@ def build_report(rows, stress, integrity, gl_version, gl_error, clean):
     return "\n".join(out), bad
 
 
+# ===========================================================================
+# 11. Real Python SAST scenarios: scanned as source code, never executed
+# ===========================================================================
+# These are real functions, not strings, so a SAST engine analyses them as code. Nothing in this file calls
+# them and the server is never started; sast_case_problems() fails the run if that ever changes. A pass here
+# only proves the functions exist and stay uncalled: whether they are detected is a scanner result.
+# sast_vuln_* is intentionally vulnerable, sast_safe_* is the secure version of the same operation.
+# Third-party imports are optional so this harness keeps working on a machine without them.
+
+import ast  # noqa: E402
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+import logging  # noqa: E402
+import pickle  # noqa: E402
+import random  # noqa: E402
+import secrets  # noqa: E402
+import sqlite3  # noqa: E402
+import ssl  # noqa: E402
+import string  # noqa: E402
+import tarfile  # noqa: E402
+import tempfile  # noqa: E402
+import urllib.parse  # noqa: E402
+import urllib.request  # noqa: E402
+import xml.etree.ElementTree as StdlibET  # noqa: E402
+import zipfile  # noqa: E402
+
+try:
+    from flask import Flask, jsonify, redirect, render_template_string, request, send_file
+except ImportError:
+    class Flask:
+        """Stand-in so the route decorators still load when Flask is not installed."""
+
+        def __init__(self, name):
+            self.name = name
+
+        def route(self, _path, **_options):
+            return lambda function: function
+
+    jsonify = redirect = render_template_string = request = send_file = None
+
+try:
+    import requests
+except ImportError:
+    requests = None
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+try:
+    from lxml import etree
+except ImportError:
+    etree = None
+
+try:
+    import defusedxml.ElementTree as DefusedET
+except ImportError:
+    DefusedET = None
+
+try:
+    import jwt
+except ImportError:
+    jwt = None
+
+app = Flask(__name__)
+sast_logger = logging.getLogger("sast-scenarios")
+
+SAST_UPLOAD_ROOT = "/srv/caseflow/uploads"
+SAST_ALLOWED_HOSTS = {"api.caseflow.example"}
+SAST_REDIRECTS = {"home": "/", "profile": "/profile"}
+SAST_HOST_FORMAT = re.compile(r"[a-z0-9][a-z0-9.-]{0,252}")
+
+
+def sast_contained_path(name):
+    """Canonical path under SAST_UPLOAD_ROOT, or None when the name escapes it."""
+    root = os.path.realpath(SAST_UPLOAD_ROOT)
+    path = os.path.realpath(os.path.join(root, name))
+    return path if os.path.commonpath([root, path]) == root else None
+
+
+# --- OS command injection ---
+
+# CWE-78: request value concatenated into a shell command.
+@app.route("/sast/vuln/ping")
+def sast_vuln_command_os_system():
+    host = request.args["host"]
+    return str(os.system("ping -c 1 " + host))
+
+
+# CWE-78: request value run through a shell.
+@app.route("/sast/vuln/lookup")
+def sast_vuln_command_subprocess_shell():
+    host = request.args["host"]
+    command = f"nslookup {host}"
+    return subprocess.run(command, shell=True, capture_output=True, text=True, check=False).stdout
+
+
+def sast_shell_helper(command):
+    return subprocess.Popen(command, shell=True)
+
+
+# CWE-78: the request value reaches the shell through another function.
+@app.route("/sast/vuln/trace")
+def sast_vuln_command_through_helper():
+    return str(sast_shell_helper("traceroute " + request.args["host"]).pid)
+
+
+# Safe: format checked, argument array, no shell.
+@app.route("/sast/safe/ping")
+def sast_safe_command_argument_array():
+    host = request.args["host"]
+    if not SAST_HOST_FORMAT.fullmatch(host):
+        return "invalid host", 400
+    done = subprocess.run(["ping", "-c", "1", "--", host], shell=False, capture_output=True, text=True, timeout=10, check=False)
+    return done.stdout
+
+
+# --- Python code injection ---
+
+# CWE-95: request value evaluated as Python.
+@app.route("/sast/vuln/calculate")
+def sast_vuln_code_eval():
+    expression = request.args["expression"]
+    return str(eval(expression))
+
+
+# CWE-94: request body executed as Python.
+@app.route("/sast/vuln/script", methods=["POST"])
+def sast_vuln_code_exec():
+    source = request.get_data(as_text=True)
+    exec(source)
+    return "done"
+
+
+# Safe: only Python literals are parsed.
+@app.route("/sast/safe/calculate")
+def sast_safe_code_literal_eval():
+    return str(ast.literal_eval(request.args["expression"]))
+
+
+# --- SQL injection ---
+
+# CWE-89: query built by concatenation.
+@app.route("/sast/vuln/case")
+def sast_vuln_sql_concatenation():
+    case_id = request.args["id"]
+    connection = sqlite3.connect(":memory:")
+    return jsonify(connection.execute("SELECT * FROM cases WHERE id = '" + case_id + "'").fetchall())
+
+
+# CWE-89: query built with an f-string in a variable.
+@app.route("/sast/vuln/search")
+def sast_vuln_sql_fstring():
+    owner = request.args["owner"]
+    query = f"SELECT * FROM cases WHERE owner = '{owner}'"
+    cursor = sqlite3.connect(":memory:").cursor()
+    cursor.execute(query)
+    return jsonify(cursor.fetchall())
+
+
+# Safe: bound parameter.
+@app.route("/sast/safe/case")
+def sast_safe_sql_parameterized():
+    connection = sqlite3.connect(":memory:")
+    return jsonify(connection.execute("SELECT * FROM cases WHERE id = ?", (request.args["id"],)).fetchall())
+
+
+# --- Path traversal ---
+
+# CWE-22: user path joined to the base directory with no containment check.
+@app.route("/sast/vuln/attachment")
+def sast_vuln_path_traversal_read():
+    path = os.path.join(SAST_UPLOAD_ROOT, request.args["name"])
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+# Safe: canonical path must stay under the base directory.
+@app.route("/sast/safe/attachment")
+def sast_safe_path_contained_read():
+    path = sast_contained_path(request.args["name"])
+    if path is None:
+        return "not found", 404
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+# --- Arbitrary file read and write ---
+
+# CWE-73: the caller chooses which file is served.
+@app.route("/sast/vuln/download")
+def sast_vuln_file_read_any():
+    return send_file(request.args["path"])
+
+
+# CWE-73: the caller chooses which file is overwritten and its content.
+@app.route("/sast/vuln/save", methods=["POST"])
+def sast_vuln_file_write_any():
+    with open(request.args["path"], "wb") as handle:
+        handle.write(request.get_data())
+    return "saved"
+
+
+# Safe: the caller's text goes to a new temporary file whose name the server chose.
+@app.route("/sast/safe/save", methods=["POST"])
+def sast_safe_file_write_generated_name():
+    with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), delete=False) as handle:
+        handle.write(request.get_data())
+        return os.path.basename(handle.name)
+
+
+# --- Server-side request forgery ---
+
+# CWE-918: user URL given to requests.
+@app.route("/sast/vuln/preview")
+def sast_vuln_ssrf_requests():
+    return requests.get(request.args["url"], timeout=5).text
+
+
+# CWE-918: user URL given to urllib, which also accepts file:// URLs.
+@app.route("/sast/vuln/fetch")
+def sast_vuln_ssrf_urllib():
+    with urllib.request.urlopen(request.args["url"], timeout=5) as response:
+        return response.read()
+
+
+# Safe: fixed host, the caller picks only a validated numeric id.
+@app.route("/sast/safe/preview")
+def sast_safe_ssrf_fixed_host():
+    case_id = int(request.args["id"])
+    return requests.get(f"https://api.caseflow.example/cases/{case_id}", timeout=5).text
+
+
+# Safe: scheme and host checked against an allowlist, redirects off.
+def sast_safe_ssrf_allowlist(url):
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in SAST_ALLOWED_HOSTS:
+        raise ValueError("host not allowed")
+    return requests.get(url, timeout=5, allow_redirects=False).text
+
+
+# --- Unsafe deserialization ---
+
+# CWE-502: pickle runs code from the request body.
+@app.route("/sast/vuln/restore", methods=["POST"])
+def sast_vuln_deserialize_pickle():
+    return str(pickle.loads(request.get_data()))
+
+
+# CWE-502: the full YAML loader can build arbitrary objects.
+@app.route("/sast/vuln/import", methods=["POST"])
+def sast_vuln_deserialize_yaml():
+    return str(yaml.load(request.get_data(), Loader=yaml.Loader))
+
+
+# Safe: JSON builds only plain data.
+@app.route("/sast/safe/restore", methods=["POST"])
+def sast_safe_deserialize_json():
+    return str(json.loads(request.get_data()))
+
+
+# Safe: yaml.safe_load builds only plain data.
+@app.route("/sast/safe/import", methods=["POST"])
+def sast_safe_deserialize_yaml():
+    return str(yaml.safe_load(request.get_data()))
+
+
+# --- Insecure temporary files ---
+
+# CWE-377: the name can be taken over before the file is created.
+def sast_vuln_tempfile_mktemp(content):
+    path = tempfile.mktemp(suffix=".csv")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+# CWE-377: fixed, predictable name in a shared directory.
+def sast_vuln_tempfile_predictable(content):
+    path = "/tmp/caseflow-export.csv"
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+# Safe: created atomically with an unpredictable name and private permissions.
+def sast_safe_tempfile_mkstemp(content):
+    descriptor, path = tempfile.mkstemp(suffix=".csv")
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+# --- Weak cryptographic algorithms ---
+
+# CWE-328: MD5 used to protect a value against tampering.
+def sast_vuln_weak_hash_md5_signature(payload):
+    return hashlib.md5(b"caseflow" + payload).hexdigest()
+
+
+# CWE-328: SHA-1 used to protect a value against tampering.
+def sast_vuln_weak_hash_sha1_signature(payload):
+    return hashlib.sha1(b"caseflow" + payload).hexdigest()
+
+
+# Safe: HMAC-SHA-256 with a key read from the environment.
+def sast_safe_hmac_sha256_signature(payload):
+    return hmac.new(os.environ["CASEFLOW_SIGNING_KEY"].encode(), payload, hashlib.sha256).hexdigest()
+
+
+# --- Hardcoded cryptographic keys ---
+
+# CWE-321: synthetic signing key committed in source.
+SAST_WEBHOOK_SIGNING_KEY = "f4Q9zLw2Xv7TnR1cKp8HsY3mBd6GjE0a"
+
+
+def sast_vuln_hardcoded_signing_key(payload):
+    return hmac.new(SAST_WEBHOOK_SIGNING_KEY.encode(), payload, hashlib.sha256).hexdigest()
+
+
+# CWE-321: synthetic JWT key written directly into the call.
+def sast_vuln_hardcoded_jwt_key(user_id):
+    return jwt.encode({"sub": user_id}, "N7vK2pXq9Lm4Zt8RwB3cYh6Fd1Gs5Ja0", algorithm="HS256")
+
+
+# --- Insecure TLS verification ---
+
+# CWE-295: certificate checks disabled for requests.
+def sast_vuln_tls_verify_disabled(url):
+    return requests.get(url, verify=False, timeout=5).text
+
+
+# CWE-295: context that accepts any certificate.
+def sast_vuln_tls_unverified_context(url):
+    with urllib.request.urlopen(url, context=ssl._create_unverified_context(), timeout=5) as response:
+        return response.read()
+
+
+# CWE-295: verification turned off on a client context.
+def sast_vuln_tls_cert_none():
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+# Safe: certificates verified.
+def sast_safe_tls_verified(url):
+    return requests.get(url, verify=True, timeout=5).text
+
+
+# Safe: default context verifies certificates and host names.
+def sast_safe_tls_default_context():
+    with urllib.request.urlopen("https://api.caseflow.example/health", context=ssl.create_default_context(), timeout=5) as response:
+        return response.read()
+
+
+# --- Weak random numbers for security tokens ---
+
+# CWE-338: predictable generator for a login code.
+def sast_vuln_random_login_code():
+    login_code = random.randint(100000, 999999)
+    return login_code
+
+
+# CWE-338: predictable generator inside a join.
+def sast_vuln_random_reset_token():
+    return "".join(random.choice(string.ascii_letters) for _ in range(32))
+
+
+# CWE-338: random.choices for an API key.
+def sast_vuln_random_api_key():
+    api_key = "".join(random.choices(string.ascii_letters + string.digits, k=40))
+    return api_key
+
+
+# Safe: cryptographically secure generator.
+def sast_safe_secrets_token():
+    return secrets.token_urlsafe(32)
+
+
+# --- Insecure password hashing ---
+
+# CWE-916: fast unsalted MD5.
+def sast_vuln_password_md5(password):
+    return hashlib.md5(password.encode()).hexdigest()
+
+
+# CWE-759: fast unsalted SHA-256.
+def sast_vuln_password_sha256_unsalted(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+# Safe: memory-hard KDF with a random salt.
+def sast_safe_password_scrypt(password):
+    salt = os.urandom(16)
+    return salt.hex() + ":" + hashlib.scrypt(password.encode(), salt=salt, n=2 ** 14, r=8, p=1).hex()
+
+
+# --- Sensitive information exposure ---
+
+# CWE-532: the password is written to the log.
+def sast_vuln_exposure_password_logged(username, password):
+    sast_logger.info("login user=%s password=%s", username, password)
+
+
+# CWE-200: every environment variable is returned to the caller.
+@app.route("/sast/vuln/debug-env")
+def sast_vuln_exposure_environment():
+    return jsonify(dict(os.environ))
+
+
+# CWE-209: the raw exception goes back to the caller.
+@app.route("/sast/vuln/report")
+def sast_vuln_exposure_exception():
+    try:
+        return str(1 / int(request.args["divisor"]))
+    except (ValueError, ZeroDivisionError) as err:
+        return repr(err), 500
+
+
+# CWE-489: the debugger allows code execution from the browser. Nothing calls this.
+def sast_vuln_exposure_debug_server():
+    app.run(host="0.0.0.0", debug=True)
+
+
+# Safe: the password is left out of the log.
+def sast_safe_exposure_log_username_only(username):
+    sast_logger.info("login user=%s", username)
+
+
+# Safe: only the generic message goes back.
+@app.route("/sast/safe/report")
+def sast_safe_exposure_generic_error():
+    try:
+        return str(1 / int(request.args["divisor"]))
+    except (ValueError, ZeroDivisionError):
+        sast_logger.exception("report failed")
+        return "report failed", 500
+
+
+# --- Open redirect ---
+
+# CWE-601: the target comes straight from the request.
+@app.route("/sast/vuln/continue")
+def sast_vuln_open_redirect():
+    return redirect(request.args["next"])
+
+
+# Safe: the request picks a key from a server-side table.
+@app.route("/sast/safe/continue")
+def sast_safe_redirect_allowlist():
+    return redirect(SAST_REDIRECTS.get(request.args.get("next"), "/"))
+
+
+# --- ReDoS ---
+
+# CWE-1333: nested quantifier backtracks exponentially on input like "aaaa!".
+@app.route("/sast/vuln/validate")
+def sast_vuln_redos_nested_quantifier():
+    return str(bool(re.match(r"^(a+)+$", request.args["value"])))
+
+
+# CWE-1333: overlapping alternatives backtrack exponentially.
+def sast_vuln_redos_overlapping_alternatives(value):
+    return re.fullmatch(r"(\w|\d)+@caseflow\.example", value) is not None
+
+
+# Safe: no nested quantifier, input length limited.
+@app.route("/sast/safe/validate")
+def sast_safe_regex_linear():
+    value = request.args["value"][:256]
+    return str(re.fullmatch(r"a+", value) is not None)
+
+
+# --- XML external entities ---
+
+# CWE-611: entity resolution switched on explicitly.
+@app.route("/sast/vuln/xml-lxml", methods=["POST"])
+def sast_vuln_xxe_lxml_resolve_entities():
+    parser = etree.XMLParser(resolve_entities=True)
+    return etree.tostring(etree.fromstring(request.get_data(), parser))
+
+
+# CWE-611: lxml parse with its default parser.
+@app.route("/sast/vuln/xml-upload", methods=["POST"])
+def sast_vuln_xxe_lxml_parse():
+    return etree.tostring(etree.parse(request.files["document"]))
+
+
+# CWE-776: stdlib parser has no protection against entity expansion.
+@app.route("/sast/vuln/xml-stdlib", methods=["POST"])
+def sast_vuln_xml_stdlib_expansion():
+    return StdlibET.fromstring(request.get_data()).tag
+
+
+# Safe: entities and network access turned off.
+@app.route("/sast/safe/xml-lxml", methods=["POST"])
+def sast_safe_xml_lxml_hardened():
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+    return etree.tostring(etree.fromstring(request.get_data(), parser))
+
+
+# Safe: defusedxml rejects entity tricks.
+@app.route("/sast/safe/xml-defused", methods=["POST"])
+def sast_safe_xml_defusedxml():
+    return DefusedET.fromstring(request.get_data()).tag
+
+
+# --- Unsafe archive extraction ---
+
+# CWE-22: tar member names are trusted on extraction.
+def sast_vuln_archive_tar_extractall(archive_path, destination):
+    with tarfile.open(archive_path) as archive:
+        archive.extractall(destination)
+
+
+# CWE-22: zip member name joined by hand and written with no containment check.
+def sast_vuln_archive_zip_slip(archive_path, destination):
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.namelist():
+            target = os.path.join(destination, member)
+            with open(target, "wb") as handle:
+                handle.write(archive.read(member))
+
+
+# Safe: the "data" filter rejects path escapes, links and device files.
+def sast_safe_archive_tar_filter(archive_path, destination):
+    with tarfile.open(archive_path) as archive:
+        archive.extractall(destination, filter="data")
+
+
+# Safe: each member's canonical path must stay under the destination.
+def sast_safe_archive_zip_contained(archive_path, destination):
+    root = os.path.realpath(destination)
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            target = os.path.realpath(os.path.join(root, member.filename))
+            if os.path.commonpath([root, target]) != root:
+                raise ValueError("archive member escapes the destination")
+            archive.extract(member, root)
+
+
+# --- Insecure JWT verification ---
+
+# CWE-347: the signature is never checked.
+@app.route("/sast/vuln/whoami")
+def sast_vuln_jwt_signature_disabled():
+    claims = jwt.decode(request.headers["X-Token"], options={"verify_signature": False})
+    return claims["sub"]
+
+
+# CWE-347: the unsigned "none" algorithm is accepted.
+@app.route("/sast/vuln/whoami-none")
+def sast_vuln_jwt_none_algorithm():
+    claims = jwt.decode(request.headers["X-Token"], "", algorithms=["none", "HS256"])
+    return claims["sub"]
+
+
+# Safe: signature verified with a fixed algorithm and a key from the environment.
+@app.route("/sast/safe/whoami")
+def sast_safe_jwt_verified():
+    claims = jwt.decode(request.headers["X-Token"], os.environ["CASEFLOW_JWT_KEY"], algorithms=["HS256"])
+    return claims["sub"]
+
+
+# --- Other Python weaknesses in TigerGate's rule scope ---
+
+# CWE-1336: the template text comes from the request.
+@app.route("/sast/vuln/greeting")
+def sast_vuln_template_injection():
+    return render_template_string("<p>" + request.args["name"] + "</p>")
+
+
+# Safe: fixed template, the value is autoescaped.
+@app.route("/sast/safe/greeting")
+def sast_safe_template_variable():
+    return render_template_string("<p>{{ name }}</p>", name=request.args["name"])
+
+
+# CWE-79: request value returned as HTML without escaping.
+@app.route("/sast/vuln/banner")
+def sast_vuln_reflected_xss():
+    return "<h1>" + request.args["title"] + "</h1>"
+
+
+# Safe: Flask's template engine escapes the value.
+@app.route("/sast/safe/banner")
+def sast_safe_escaped_output():
+    return render_template_string("<h1>{{ title }}</h1>", title=request.args["title"])
+
+
+# CWE-134: format string from the request can read object attributes.
+@app.route("/sast/vuln/label")
+def sast_vuln_format_string():
+    return request.args["template"].format(app=app)
+
+
+# Safe: fixed format string.
+@app.route("/sast/safe/label")
+def sast_safe_fixed_format():
+    return "Case {}".format(int(request.args["id"]))
+
+
+# CWE-915: the request chooses which attribute is written.
+@app.route("/sast/vuln/settings", methods=["POST"])
+def sast_vuln_attribute_injection():
+    setattr(sast_logger, request.args["field"], request.args["value"])
+    return "updated"
+
+
+# Safe: the field must be on a fixed allowlist.
+@app.route("/sast/safe/settings", methods=["POST"])
+def sast_safe_attribute_allowlist():
+    field = request.args["field"]
+    if field not in {"name"}:
+        return "unknown field", 400
+    setattr(sast_logger, field, request.args["value"])
+    return "updated"
+
+
+# CWE-732: world-writable permissions on an uploaded file.
+def sast_vuln_world_writable_file(path):
+    os.chmod(path, 0o777)
+
+
+# Safe: only the owner can read and write.
+def sast_safe_owner_only_file(path):
+    os.chmod(path, 0o600)
+
+
+# ID, category, CWE, OWASP 2021 (* nearest category, the CWE is not on the official list; n/a none fits), vulnerable
+# function, its safe comparison (None when no direct equivalent exists).
+SAST_CASES = [
+    ("PY-V01", "OS command injection", "CWE-78", "A03", "sast_vuln_command_os_system", "sast_safe_command_argument_array"),
+    ("PY-V02", "OS command injection", "CWE-78", "A03", "sast_vuln_command_subprocess_shell", "sast_safe_command_argument_array"),
+    ("PY-V03", "OS command injection across functions", "CWE-78", "A03", "sast_vuln_command_through_helper", "sast_safe_command_argument_array"),
+    ("PY-V04", "Code injection, eval", "CWE-95", "A03", "sast_vuln_code_eval", "sast_safe_code_literal_eval"),
+    ("PY-V05", "Code injection, exec", "CWE-94", "A03", "sast_vuln_code_exec", "sast_safe_code_literal_eval"),
+    ("PY-V06", "SQL injection, concatenation", "CWE-89", "A03", "sast_vuln_sql_concatenation", "sast_safe_sql_parameterized"),
+    ("PY-V07", "SQL injection, f-string", "CWE-89", "A03", "sast_vuln_sql_fstring", "sast_safe_sql_parameterized"),
+    ("PY-V08", "Path traversal", "CWE-22", "A01", "sast_vuln_path_traversal_read", "sast_safe_path_contained_read"),
+    ("PY-V09", "Arbitrary file read", "CWE-73", "A04", "sast_vuln_file_read_any", "sast_safe_path_contained_read"),
+    ("PY-V10", "Arbitrary file write", "CWE-73", "A04", "sast_vuln_file_write_any", "sast_safe_file_write_generated_name"),
+    ("PY-V11", "SSRF, requests", "CWE-918", "A10", "sast_vuln_ssrf_requests", "sast_safe_ssrf_fixed_host"),
+    ("PY-V12", "SSRF, urllib", "CWE-918", "A10", "sast_vuln_ssrf_urllib", "sast_safe_ssrf_allowlist"),
+    ("PY-V13", "Deserialization, pickle", "CWE-502", "A08", "sast_vuln_deserialize_pickle", "sast_safe_deserialize_json"),
+    ("PY-V14", "Deserialization, YAML", "CWE-502", "A08", "sast_vuln_deserialize_yaml", "sast_safe_deserialize_yaml"),
+    ("PY-V15", "Temporary file, mktemp", "CWE-377", "A01", "sast_vuln_tempfile_mktemp", "sast_safe_tempfile_mkstemp"),
+    ("PY-V16", "Temporary file, predictable name", "CWE-377", "A01", "sast_vuln_tempfile_predictable", "sast_safe_tempfile_mkstemp"),
+    ("PY-V17", "Weak hash, MD5", "CWE-328", "A02", "sast_vuln_weak_hash_md5_signature", "sast_safe_hmac_sha256_signature"),
+    ("PY-V18", "Weak hash, SHA-1", "CWE-328", "A02", "sast_vuln_weak_hash_sha1_signature", "sast_safe_hmac_sha256_signature"),
+    ("PY-V19", "Hardcoded signing key", "CWE-321", "A02", "sast_vuln_hardcoded_signing_key", "sast_safe_hmac_sha256_signature"),
+    ("PY-V20", "Hardcoded JWT key", "CWE-321", "A02", "sast_vuln_hardcoded_jwt_key", "sast_safe_jwt_verified"),
+    ("PY-V21", "TLS, verify=False", "CWE-295", "A07", "sast_vuln_tls_verify_disabled", "sast_safe_tls_verified"),
+    ("PY-V22", "TLS, unverified context", "CWE-295", "A07", "sast_vuln_tls_unverified_context", "sast_safe_tls_default_context"),
+    ("PY-V23", "TLS, CERT_NONE", "CWE-295", "A07", "sast_vuln_tls_cert_none", "sast_safe_tls_default_context"),
+    ("PY-V24", "Weak random, randint", "CWE-338", "A02", "sast_vuln_random_login_code", "sast_safe_secrets_token"),
+    ("PY-V25", "Weak random, choice in join", "CWE-338", "A02", "sast_vuln_random_reset_token", "sast_safe_secrets_token"),
+    ("PY-V26", "Weak random, choices", "CWE-338", "A02", "sast_vuln_random_api_key", "sast_safe_secrets_token"),
+    ("PY-V27", "Password hash, MD5", "CWE-916", "A02", "sast_vuln_password_md5", "sast_safe_password_scrypt"),
+    ("PY-V28", "Password hash, unsalted SHA-256", "CWE-759", "A02", "sast_vuln_password_sha256_unsalted", "sast_safe_password_scrypt"),
+    ("PY-V29", "Password in logs", "CWE-532", "A09", "sast_vuln_exposure_password_logged", "sast_safe_exposure_log_username_only"),
+    ("PY-V30", "Environment returned to caller", "CWE-200", "A01", "sast_vuln_exposure_environment", None),
+    ("PY-V31", "Exception returned to caller", "CWE-209", "A04", "sast_vuln_exposure_exception", "sast_safe_exposure_generic_error"),
+    ("PY-V32", "Flask debug server", "CWE-489", "A05*", "sast_vuln_exposure_debug_server", None),
+    ("PY-V33", "Open redirect", "CWE-601", "A01", "sast_vuln_open_redirect", "sast_safe_redirect_allowlist"),
+    ("PY-V34", "ReDoS, nested quantifier", "CWE-1333", "n/a", "sast_vuln_redos_nested_quantifier", "sast_safe_regex_linear"),
+    ("PY-V35", "ReDoS, overlapping alternatives", "CWE-1333", "n/a", "sast_vuln_redos_overlapping_alternatives", "sast_safe_regex_linear"),
+    ("PY-V36", "XXE, lxml resolve_entities", "CWE-611", "A05", "sast_vuln_xxe_lxml_resolve_entities", "sast_safe_xml_lxml_hardened"),
+    ("PY-V37", "XXE, lxml parse", "CWE-611", "A05", "sast_vuln_xxe_lxml_parse", "sast_safe_xml_lxml_hardened"),
+    ("PY-V38", "XML expansion, stdlib", "CWE-776", "A05", "sast_vuln_xml_stdlib_expansion", "sast_safe_xml_defusedxml"),
+    ("PY-V39", "Archive extraction, tar", "CWE-22", "A01", "sast_vuln_archive_tar_extractall", "sast_safe_archive_tar_filter"),
+    ("PY-V40", "Archive extraction, zip", "CWE-22", "A01", "sast_vuln_archive_zip_slip", "sast_safe_archive_zip_contained"),
+    ("PY-V41", "JWT signature disabled", "CWE-347", "A02", "sast_vuln_jwt_signature_disabled", "sast_safe_jwt_verified"),
+    ("PY-V42", "JWT none algorithm", "CWE-347", "A02", "sast_vuln_jwt_none_algorithm", "sast_safe_jwt_verified"),
+    ("PY-V43", "Template injection", "CWE-1336", "A03*", "sast_vuln_template_injection", "sast_safe_template_variable"),
+    ("PY-V44", "Reflected XSS", "CWE-79", "A03", "sast_vuln_reflected_xss", "sast_safe_escaped_output"),
+    ("PY-V45", "Format string", "CWE-134", "A03*", "sast_vuln_format_string", "sast_safe_fixed_format"),
+    ("PY-V46", "Attribute injection", "CWE-915", "A08", "sast_vuln_attribute_injection", "sast_safe_attribute_allowlist"),
+    ("PY-V47", "World-writable file", "CWE-732", "A01*", "sast_vuln_world_writable_file", "sast_safe_owner_only_file"),
+]
+
+
+def sast_case_problems():
+    """Every listed function exists, every sast_vuln_ and sast_safe_ function is listed, and none is ever called."""
+    with open(os.path.abspath(__file__), encoding="utf-8") as handle:
+        tree = ast.parse(handle.read())
+    defined = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+    scenario = {name for name in defined if name.startswith(("sast_vuln_", "sast_safe_"))}
+    listed = {name for case in SAST_CASES for name in case[4:6] if name}
+    problems = [f"{name} is listed but not defined" for name in sorted(listed - defined)]
+    problems += [f"{name} is defined but not listed" for name in sorted(scenario - listed)]
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.id if isinstance(node.func, ast.Name) else node.func.attr if isinstance(node.func, ast.Attribute) else ""
+        if name in scenario or (name == "sast_shell_helper" and not_inside_helper_caller(tree, node)):
+            problems.append(f"line {node.lineno} calls {name}")
+    return problems
+
+
+def not_inside_helper_caller(tree, call):
+    """The shell helper may be called only from the scenario that demonstrates it, which is itself never called."""
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "sast_vuln_command_through_helper":
+            return call not in ast.walk(node)
+    return True
+
+
+def sast_summary(problems):
+    vulnerable = {case[4] for case in SAST_CASES}
+    safe = {case[5] for case in SAST_CASES if case[5]}
+    lines = ["", "Python SAST source scenarios", f"  {len(vulnerable)} vulnerable and {len(safe)} safe functions, none executed. Detection NOT RUN here: scan this file with a SAST engine."]
+    lines += [f"  PROBLEM: {problem}" for problem in problems]
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-scanner", action="store_true", help="do not run gitleaks; every row becomes reference only")
@@ -1242,6 +1961,9 @@ def main():
     after = git_state()
     clean = (before == after) if before is not None else None
     text, bad = build_report(rows, stress, integrity, gl_version, gl_error, clean)
+    problems = sast_case_problems()
+    text += "\n" + sast_summary(problems)
+    bad = bad or bool(problems)
 
     # The report carries scenario ids and labels only. Refuse to print if a sample value got into it.
     if any(c.get("value") and c["value"] in text for c in secret_cases):
